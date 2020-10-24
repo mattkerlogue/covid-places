@@ -110,3 +110,17 @@ msoa_data <- msoa_pop %>%
   select(msoa11_cd, msoa11_hclnm, subgroup_code, subgroup_name, all_ages, everything())
 
 write_csv(msoa_data, "data/msoa_data.csv")
+
+aps_oac <- read_tsv("source_data/nomis_aps_jun2019_data.tsv")
+
+aps_oac_proc <- aps_oac %>%
+  janitor::clean_names() %>%
+  filter(value_type == "number") %>%
+  mutate(var = case_when(
+    str_detect(cell, "T33:4") ~ "ft_education",
+    str_detect(cell, "T01:22") ~ "all_people"
+  ),
+  value = as.numeric(value)) %>%
+  select(geogcode, var, value) %>%
+  pivot_wider(names_from = var, values_from = value) %>%
+  mutate(pc_fted = ft_education/all_people)
