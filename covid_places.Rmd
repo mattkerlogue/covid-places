@@ -1,0 +1,243 @@
+---
+title: "Covid19 in England - by area type"
+author: "Matt Kerlogue"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    dev: svg
+    fig_width: 10
+    fig_height: 8
+    fig_caption: true
+    highlight: breezedark
+    toc: true
+    toc_float: true
+---
+
+> This RMarkdown notebook looks at the prevalence of Covid-19 in England by area type, it is exploratory and developed out of personal curiosity in my personal time, it does not reflect official government policy or the views of my employer.
+
+There has been speculation about whether the recent surge in Covid-19 cases in England is being driven by students. This has been driven by analysis of the case-rates for MSOAs that have the term "university" in their 'colloquial' name (as defined by the House of Commons Library's MSOA names reference). I thought that there must be a more data driven approach to identifying "student" MSOAs than simply relying on their names.
+
+```{r setup, echo=FALSE, include=FALSE}
+knitr::opts_chunk$set(
+  dev = "svg",
+  out.width = "100%"
+)
+
+library(tidyverse)
+msoa_data <- read_csv("data/msoa_data.csv", col_types = cols(.default = col_character()))
+msoa_data <- msoa_data %>% mutate(all_ages = as.numeric(all_ages),
+                                  across(starts_with("wk"), as.numeric))
+
+msoa_cases_by_type <- msoa_data %>%
+  group_by(subgroup_code, subgroup_name) %>%
+  summarise(across(where(is.numeric), sum, na.rm = TRUE), .groups = "drop")
+
+subgroups <- msoa_cases_by_type$subgroup_code %>% set_names(msoa_cases_by_type$subgroup_name)
+
+msoa_cases_by_type <- msoa_cases_by_type %>%
+  mutate(subgroup = factor(subgroup_code, levels = subgroups, labels = str_wrap(names(subgroups), 15)))
+
+type_pop <- msoa_cases_by_type %>%
+  select(subgroup, all_ages)
+
+```
+
+## University cases
+
+Let's use the MSOA names 'method' first of all to see if there's value in it. We are currently in week 43, as this is something that people have been talking about for a couple of weeks, let's go back and look at the data for week 40 ([INSERT DATES]). If we look at the ten MSOAs with the highest case rate (cases per 100,000 people) then four of these include the word "university" in their name.
+
+```{r}
+
+university_msoa <- msoa_data %>%
+  mutate(university_area = str_detect(tolower(msoa11_hclnm), "university"))
+
+university_cases <- university_msoa %>%
+  select(msoa11_cd, msoa11_hclnm, all_ages, wk_40) %>%
+  mutate(rate = wk_40/(all_ages/100000))
+  
+
+university_cases %>% 
+  slice_max(order_by = rate, n = 10) %>%
+  arrange(-rate) %>%
+  mutate(msoa11_hclnm = if_else(
+    str_detect(tolower(msoa11_hclnm), "university"),
+    paste0("<strong>", msoa11_hclnm, "</strong>"), 
+    msoa11_hclnm)) %>%
+  knitr::kable(escape = FALSE, format = "html") %>%
+  kableExtra::kable_styling()
+    
+
+```
+
+If we look at all MSOAs over time by whether they have "university" in their name or not we can see that there has been a clear spike in the case rate for "university" MSOAs.
+
+```{r, fig.height=5}
+
+university_cases_graph_dt <- msoa_data %>%
+  mutate(university = factor(if_else(str_detect(tolower(msoa11_hclnm), "university"),
+                             "University MSOA", "Other MSOA"), 
+                             levels = c("University MSOA", "Other MSOA"))) %>%
+  group_by(university) %>%
+  summarise(across(where(is.numeric), sum, na.rm = TRUE), .groups = "drop") %>%
+  pivot_longer(cols = c(starts_with("wk")), 
+               names_to = "week", values_to = "cases") %>%
+  mutate(week = as.numeric(str_remove(week, "wk_")),
+         rate = cases/(all_ages/100000)) %>%
+  filter(week > 26)
+
+ggplot(university_cases_graph_dt, aes(x = week, y = rate, colour = university)) +
+  geom_line() +
+  scale_colour_manual(values = c("#d7191c", "#2c7bb6")) +
+  labs(x = "Week", y = "Covid-19 case rate (per 100,000)") +
+  mattR::theme_lpsdgeog() +
+  theme(legend.title = element_blank(),
+        legend.position = "top")
+
+```
+
+However there are only `r  sum(str_detect(tolower(msoa_data$msoa11_hclnm), "university"))` MSOAs with the word "university" in their name, out of `r nrow(msoa_data)` MSOAs, a very small fraction of the data.
+
+## Using Area Classifications
+
+There are a number of geo-demographic classification systems that cluster local areas based on a range of key characteristics. The most famous (Mosaic and Acorn), but there is an open classification developed by the ONS and University College London from the 2011 Census: the Output Area Classification. Five of the 69 sub-groups in the classification specifically reference students in their names.
+
+```{r}
+msoa_data %>%
+  distinct(subgroup_code, subgroup_name) %>%
+  filter(str_detect(tolower(subgroup_name), "student")) %>%
+  arrange(subgroup_code) %>%
+  knitr::kable(format = "html") %>%
+  kableExtra::kable_styling()
+```
+
+The 2011 Census was almost a decade away and its successor is due to take place next April, the last Census remains the best available public data on the geographical distribution of students (without access to the ONS' Annual Population Survey raw data ). While there is no doubt going to have been some changes, given that universities are relatively fixed geographical entities it is likely that the general pattern arising from the 2011 Census is likely to be good enough for us here.
+
+### Aggregating the area classifications
+
+The 2011 Output Area Classifications (OAC) are based on the smallest unit of Census geography, the Output Area. There is an aggregation of these classifications for local authorities but not for intermediate geographies such as MSOAs. MSOAs have been assigned to one of the 69 area OAC sub-groups using the following method:
+
+-   Obtain the 2019 Mid-Year Population Estimates for Output Areas in England
+-   Join the population estimates to the OAC data
+-   Link Output Areas to their containing MSOA
+-   Calculate the proportion of the MSOA population that is from each subgroup (`subgroup_pop_pc`)
+-   Calculate the proportion of Output Areas within an MSOA allocated to each subgroup (`subgroup_oa_pc`)
+-   Create a score by multiplying these two proportions (`scores = subgroup_pop_pc * subgroup_oa_pc`)
+-   Assign the MOSA to the subgroup with the highest score
+
+### Cases by area classification
+
+First off, looking at case levels across all sub-group types, we can see that there are some spikes in the sub-groups related to students, but also in other area types too (White Suburban Communities and Semi-Detached Ageing).
+
+```{r}
+type_cases_graph_dt <- msoa_cases_by_type %>%
+  select(subgroup, starts_with("wk")) %>%
+  pivot_longer(cols = -subgroup, names_to = "week", values_to = "cases") %>%
+  mutate(week = as.numeric(str_remove(week, "wk_"))) %>%
+  filter(week > 26)
+
+ggplot(type_cases_graph_dt, aes(x = week, y = cases, colour = subgroup)) +
+  geom_line() +
+  facet_wrap(~subgroup) +
+  scale_y_continuous(limits = c(0,9000),
+                     breaks = c(0, 4500, 9000),
+                     labels = c("0", "4.5k", "9k")) +
+  labs(x = "Week", y = "Number of cases") +
+  mattR::theme_lpsdgeog() +
+  theme(legend.position = "none",
+        axis.text.y = element_text(hjust = 1),
+        panel.grid.minor = element_blank(),
+        strip.text = element_text(size = 7))
+
+```
+
+The first graph uses the same y-axis, so we might be missing patterns in areas with smaller populations (and thus smaller number of cases), let's let the y-axis vary for each group. This shows us that spikes in cases are happening across all area types.
+
+```{r}
+ggplot(type_cases_graph_dt, aes(x = week, y = cases, colour = subgroup)) +
+  geom_line() +
+  facet_wrap(~subgroup, scales = "free_y") +
+  labs(x = "Week", y = "Number of cases") +
+  mattR::theme_lpsdgeog() +
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.border = element_rect(colour = "grey80", fill = NA),
+        strip.text = element_text(size = 7))
+```
+
+However, the best way of comparing area is to look at the case rate (per 100,000). As with the 'university' example this shows clear spikes for the "Student Communal Living" and "Student Digs".
+
+```{r}
+
+type_rate_graph_dt <- type_cases_graph_dt %>%
+  left_join(type_pop, by = "subgroup") %>%
+  mutate(rate = cases / (all_ages/100000)) %>%
+  filter(week > 26)
+
+ggplot(type_rate_graph_dt, aes(x = week, y = rate, colour = subgroup)) +
+  geom_line() +
+  scale_y_continuous(breaks = c(0, 1000), labels = c("", "1k")) +
+  labs(x = "Week", y = "Covid-19 case rate (per 100,000)") +
+  facet_wrap(~subgroup) +
+  mattR::theme_lpsdgeog() +
+  theme(legend.position = "none",
+        panel.border = element_rect(colour = "grey80", fill = NA),
+        panel.grid.minor = element_blank(),
+        strip.text = element_text(size = 7),
+        axis.text.y = element_text(hjust = 1))
+
+```
+
+Finally, let's compare area types in a single graph, let's combine the "Student Communal Living" and "Student Digs" area types into a "Mainly students" neighbourhood category, the three other subgroups with students in their name into a "Students and others" category, and then all other neighbourhoods.
+
+```{r, fig.height=5}
+
+student_neighbourhoods <- msoa_cases_by_type %>%
+   mutate(neighbourhood = case_when(
+     subgroup_code == "2a1" ~ "Mainly students",
+     subgroup_code == "2a2" ~ "Mainly students",
+     str_detect(subgroup_name, "student|Student") ~ "Students and others",
+     TRUE ~ "Other neighbourhoods"),
+     neighbourhood = factor(neighbourhood, 
+                            levels = c("Mainly students", 
+                                       "Students and others", 
+                                       "Other neighbourhoods"))) %>%
+  select(neighbourhood, all_ages, starts_with("wk")) %>%
+  group_by(neighbourhood) %>%
+  summarise(across(where(is.numeric), sum, na.rm = TRUE), .groups = "drop")
+
+student_rates <- student_neighbourhoods %>%
+  select(neighbourhood, starts_with("wk_")) %>%
+  pivot_longer(cols = -neighbourhood, names_to = "week", values_to = "cases") %>%
+  mutate(week = as.numeric(str_remove(week, "wk_"))) %>%
+  left_join(select(student_neighbourhoods, neighbourhood, all_ages), 
+            by = "neighbourhood") %>%
+  mutate(rate = cases / (all_ages/100000)) %>%
+  filter(week > 26)
+
+ggplot(student_rates, aes(x = week, y = rate, colour = neighbourhood)) +
+  geom_line() +
+  scale_colour_manual(values = c(
+    "Mainly students" = "#d7191c",
+    "Students and others" = "#fdae61",
+    "Other neighbourhoods" = "#2c7bb6"
+  )) +
+  labs(x = "Week", y = "Covid-19 case rate (per 100,000)") +
+  mattR::theme_lpsdgeog() +
+  theme(panel.border = element_rect(colour = "grey80", fill = NA),
+        legend.position = "top",
+        legend.title = element_blank())
+
+```
+
+## About the data
+
+The data used in this report comes from the Office for National Statistics (ONS), Public Health England (PHE). PHE data also includes data from the House of Commons Library (HOCL). ONS and PHE data are Crown Copyright and used under the terms of the [Open Government Licence](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/), HOCL data are Parliamentary Copyright and used under the terms of the [Open Parliament Licence](https://www.parliament.uk/site-information/copyright-parliament/open-parliament-licence/).
+
+The data used in this report are:
+
+* ONS 2019 Mid-Year Population Estimates for Mid Layer Super Output Areas (MSOAs) and Output Areas
+* ONS 2011 Census Output Area Classification
+* PHE Covid-19 case data for MSOAs
