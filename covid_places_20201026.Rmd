@@ -1,7 +1,7 @@
 ---
-title: "Covid19 in England - by area type"
+title: "Covid-19 in England by area type"
 author: "Matt Kerlogue"
-date: "`r Sys.Date()`"
+date: "2020-10-26"
 output:
   html_document:
     code_folding: hide
@@ -9,12 +9,12 @@ output:
     fig_width: 10
     fig_height: 8
     fig_caption: true
-    highlight: breezedark
+    highlight: zenburn
     toc: true
     toc_float: true
 ---
 
-> This RMarkdown notebook looks at the prevalence of Covid-19 in England by area type, it is exploratory and developed out of personal curiosity in my personal time, it does not reflect official government policy or the views of my employer.
+**This RMarkdown notebook looks at the prevalence of Covid-19 in England by area type. It is exploratory and developed out of personal curiosity in my personal time, it does not reflect official government policy or the views of my employer.**
 
 There has been speculation about whether the recent surge in Covid-19 cases in England is being driven by students. This has been driven by analysis of the case-rates for MSOAs that have the term "university" in their 'colloquial' name (as defined by the House of Commons Library's MSOA names reference). I thought that there must be a more data driven approach to identifying "student" MSOAs than simply relying on their names.
 
@@ -45,7 +45,7 @@ type_pop <- msoa_cases_by_type %>%
 
 ## University cases
 
-Let's use the MSOA names 'method' first of all to see if there's value in it. We are currently in week 43, as this is something that people have been talking about for a couple of weeks, let's go back and look at the data for week 40 ([INSERT DATES]). If we look at the ten MSOAs with the highest case rate (cases per 100,000 people) then four of these include the word "university" in their name.
+Let's use the MSOA names 'method' first of all to see if there's value in it. We are currently in week 43, so week 42 is the latest 'full' data for MSOAs. As this is something that people have been talking about for a couple of weeks, let's go back and look at the data for week 40 (the week to `r lubridate::ymd("2020-01-02") + lubridate::weeks(40)`). If we look at the ten MSOAs with the highest case rate (cases per 100,000 people) then four of these include the word "university" in their name.
 
 ```{r}
 
@@ -96,7 +96,7 @@ ggplot(university_cases_graph_dt, aes(x = week, y = rate, colour = university)) 
 
 ```
 
-However there are only `r  sum(str_detect(tolower(msoa_data$msoa11_hclnm), "university"))` MSOAs with the word "university" in their name, out of `r nrow(msoa_data)` MSOAs, a very small fraction of the data.
+However there are only `r  sum(grepl("university",tolower(msoa_data$msoa11_hclnm)))` MSOAs with the word "university" in their name out of `r formattable::comma(nrow(msoa_data),0)` MSOAs, with a population of `r formattable::comma(sum(msoa_data[grepl("university",tolower(msoa_data$msoa11_hclnm)), "all_ages"]), 0)` people, a very small fraction of the data.
 
 ## Using Area Classifications
 
@@ -111,7 +111,7 @@ msoa_data %>%
   kableExtra::kable_styling()
 ```
 
-The 2011 Census was almost a decade away and its successor is due to take place next April, the last Census remains the best available public data on the geographical distribution of students (without access to the ONS' Annual Population Survey raw data ). While there is no doubt going to have been some changes, given that universities are relatively fixed geographical entities it is likely that the general pattern arising from the 2011 Census is likely to be good enough for us here.
+The 2011 Census was almost a decade ago and its successor is due to take place in less than six months time. However, the last Census remains the best available public data on the geographical distribution of students. While there is no doubt going to have been some changes, given that universities are relatively fixed geographical entities it is likely that the general pattern arising from the 2011 Census is likely to be good enough for us here.
 
 ### Aggregating the area classifications
 
@@ -125,9 +125,27 @@ The 2011 Output Area Classifications (OAC) are based on the smallest unit of Cen
 -   Create a score by multiplying these two proportions (`scores = subgroup_pop_pc * subgroup_oa_pc`)
 -   Assign the MOSA to the subgroup with the highest score
 
+```{r}
+
+msoa_data %>%
+  select(subgroup_code, subgroup_name, all_ages) %>%
+  add_count(subgroup_code, subgroup_name, name = "n_oas") %>%
+  add_count(subgroup_code, subgroup_name, wt = all_ages, name = "population") %>%
+  select(-all_ages) %>%
+  distinct() %>%
+  filter(str_detect(tolower(subgroup_name), "student")) %>%
+  mutate(population = formattable::comma(population, digits = 0)) %>%
+  arrange(subgroup_code) %>%
+  knitr::kable(format = "html") %>%
+  kableExtra::kable_styling()
+
+```
+
+This gives us `r  sum(grepl("^student ",tolower(msoa_data$subgroup_name)))` MSOAs that are likely to be largely student populations (Student Communal Living and Student Digs) with a population of `r formattable::comma(sum(msoa_data[grepl("^student ",tolower(msoa_data$subgroup_name)), "all_ages"]), 0)`, and a further `r sum(grepl("student",tolower(msoa_data$subgroup_name))) - sum(grepl("^student ",tolower(msoa_data$subgroup_name)))` areas that are likely to have significant student populations with a population of `r formattable::comma(sum(msoa_data[grepl("student",tolower(msoa_data$subgroup_name)), "all_ages"]) - sum(msoa_data[grepl("^student ",tolower(msoa_data$subgroup_name)), "all_ages"]), 0)`. A much more substantial set of areas to base our analysis on.
+
 ### Cases by area classification
 
-First off, looking at case levels across all sub-group types, we can see that there are some spikes in the sub-groups related to students, but also in other area types too (White Suburban Communities and Semi-Detached Ageing).
+First off, looking at raw case numbers across all sub-group types, we can see that there are some spikes in the sub-groups related to students, but also in other area types too (White Suburban Communities and Semi-Detached Ageing).
 
 ```{r}
 type_cases_graph_dt <- msoa_cases_by_type %>%
@@ -151,7 +169,8 @@ ggplot(type_cases_graph_dt, aes(x = week, y = cases, colour = subgroup)) +
 
 ```
 
-The first graph uses the same y-axis, so we might be missing patterns in areas with smaller populations (and thus smaller number of cases), let's let the y-axis vary for each group. This shows us that spikes in cases are happening across all area types.
+
+This first chart uses a fixed y-axis across each area, so we might be missing patterns in areas with smaller populations (and thus smaller number of cases), letting the y-axis vary for each group. This shows us that the rise in cases is happening across all area types.
 
 ```{r}
 ggplot(type_cases_graph_dt, aes(x = week, y = cases, colour = subgroup)) +
@@ -190,7 +209,7 @@ ggplot(type_rate_graph_dt, aes(x = week, y = rate, colour = subgroup)) +
 
 ```
 
-Finally, let's compare area types in a single graph, let's combine the "Student Communal Living" and "Student Digs" area types into a "Mainly students" neighbourhood category, the three other subgroups with students in their name into a "Students and others" category, and then all other neighbourhoods.
+To more easily visualise this, let's compare area types in a single graph, let's combine the "Student Communal Living" and "Student Digs" area types into a "Mainly students" neighbourhood category, the three other subgroups with students in their name into a "Students and others" category, and then all other neighbourhoods.
 
 ```{r, fig.height=5}
 
@@ -219,6 +238,7 @@ student_rates <- student_neighbourhoods %>%
 
 ggplot(student_rates, aes(x = week, y = rate, colour = neighbourhood)) +
   geom_line() +
+  scale_x_continuous(minor_breaks = 26:42) +
   scale_colour_manual(values = c(
     "Mainly students" = "#d7191c",
     "Students and others" = "#fdae61",
@@ -232,12 +252,46 @@ ggplot(student_rates, aes(x = week, y = rate, colour = neighbourhood)) +
 
 ```
 
+The case rates in the student areas are notably higher than in other area types, and happened before the rise in other area types.
+
+### Potential applications
+As mentioned at the top of this report, this analysis is purely due to my own personal curiosity in this issue. However, it is possible that using the Output Area Classification with MSOA case data could enable more targeted action to be taken, the chart above clearly shows us that the case rate in what are the OAC suggests are predominately student areas was starting in week 36, and certainly by week 38. A subsequent rise then started in other student areas and at the time of writing appears to be extending to other area types.
+
+The following chart shows the case rates for weeks 36-42 by area type but again with a varying y-axis per group and a dashed horizontal line to indicate a rate of 100 cases per 100,000.
+
+```{r}
+
+ggplot(filter(type_rate_graph_dt, week >= 35), aes(x = week, y = rate, colour = subgroup)) +
+  geom_hline(yintercept = 100, linetype = "dashed", size = 0.3, colour = "grey40") +
+  geom_line() +
+  labs(x = "Week", y = "Covid-19 case rate (per 100,000)") +
+  scale_x_continuous(minor_breaks = 35:42) +
+  facet_wrap(~subgroup, scales = "free_y") +
+  mattR::theme_lpsdgeog() +
+  theme(legend.position = "none",
+        panel.border = element_rect(colour = "grey80", fill = NA),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.text = element_text(size = 7),
+        axis.text.y = element_blank())
+
+```
+
+There still some area types where the case rate is below 100, but not many and the majority of places appear to be on a trajectory towards breaching that rate.
+
+There are however some limitations with the available data that would either need rectifying/caveating if this were to be used more robustly in decision making:
+
+* The application of the OAC to MSOAs should be validated, the current assignment method is a quick and dirty approximation. Ideally, an MSOA specific classification would be developed that ensures a more appropriate assignment of MSOAs either to the existing classification or a one-off bespoke classification.
+* Creating a bespoke MSOA classification for the purposes of responding to Covid-19 might have its advantages, for example by combining other data being used in understanding the pandemic such as travel to work/inter-area mobility, physical infrastructure (e.g. communal establishments, hospitals) and other measures.
+* Data from the ONS Annual Population Survey could provide be a source of data to either validate/update information about the presence of students - there is an option within Nomis to extract some data by the 2011 OAC, but this did not allow for analysis of the numbers in higher eduction by OAC area type.
+
+
 ## About the data
 
 The data used in this report comes from the Office for National Statistics (ONS), Public Health England (PHE). PHE data also includes data from the House of Commons Library (HOCL). ONS and PHE data are Crown Copyright and used under the terms of the [Open Government Licence](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/), HOCL data are Parliamentary Copyright and used under the terms of the [Open Parliament Licence](https://www.parliament.uk/site-information/copyright-parliament/open-parliament-licence/).
 
 The data used in this report are:
 
-* ONS 2019 Mid-Year Population Estimates for Mid Layer Super Output Areas (MSOAs) and Output Areas
-* ONS 2011 Census Output Area Classification
-* PHE Covid-19 case data for MSOAs
+* ONS 2019 Mid-Year Population Estimates for Mid Layer Super Output Areas (MSOAs) and Output Areas [link](https://www.ons.gov.uk/peoplepopulationandcommunity/populationandmigration/populationestimates/datalist?filter=datasets)
+* ONS 2011 Census Output Area Classification [link](https://www.ons.gov.uk/methodology/geography/geographicalproducts/areaclassifications/2011areaclassifications/datasets)
+* PHE Covid-19 case data for MSOAs [link](https://coronavirus.data.gov.uk/about-data#cases-by-middle-super-output-area-msoa)
