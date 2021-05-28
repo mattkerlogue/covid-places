@@ -39,4 +39,4 @@ vignettes/*.pdf
 .Renviron
 
 # Exclude source data folder
-source_data/*
+20201026_area-types/source_data/*
