@@ -1,10 +1,13 @@
 library(tidyverse)
 library(patchwork)
 
-sanger_url <- "https://covid-surveillance-data.cog.sanger.ac.uk/download/lineages_by_ltla_and_week.tsv"
+### Get data ----
 
+# Sanger institute data
+sanger_url <- "https://covid-surveillance-data.cog.sanger.ac.uk/download/lineages_by_ltla_and_week.tsv"
 sanger_data <- read_tsv(sanger_url)
 
+# use latest estimates for most recent weeks
 sanger_data_max <- sanger_data %>%
   filter(WeekEndDate == max(WeekEndDate))
 
@@ -14,11 +17,11 @@ sanger_extra <- bind_rows(
   sanger_data_max %>% mutate(WeekEndDate = lubridate::ymd("2021-05-29")),
 )
 
+# PHE data
 phe_url <- "https://api.coronavirus.data.gov.uk/v2/data?areaType=ltla&metric=newCasesBySpecimenDate&format=csv"
-
 phe_data <- read_csv(phe_url)
 
-
+# Population data
 nomis_url <- "https://www.nomisweb.co.uk/api/v01/dataset/NM_2002_1.data.csv?geography=1820327937...1820328318&date=latest&gender=0&c_age=200&measures=20100"
 
 nomis_data <- read_csv(nomis_url)
@@ -27,6 +30,11 @@ population_data <- nomis_data %>%
   transmute(areaCode = GEOGRAPHY_CODE,
          population = as.numeric(OBS_VALUE))
 
+
+
+### Rates for variants ----
+
+# Get weekly rate for each variant
 sanger_rates <- sanger_extra %>%
   arrange(LTLA, WeekEndDate) %>%
   group_by(LTLA, WeekEndDate) %>%
@@ -34,12 +42,16 @@ sanger_rates <- sanger_extra %>%
          rate = Count/total_cases) %>%
   ungroup()
 
+# Select the Indian variant (B.1.617.2)
 b16172_incidence <- sanger_rates %>%
   filter(Lineage == "B.1.617.2") %>%
   select(week_date = WeekEndDate,
          areaCode = LTLA,
          b16172_prop = rate)
 
+### Local area data ----
+
+# calculate rolling sum
 locality_data <- phe_data %>%
   arrange(areaCode, date) %>%
   group_by(areaCode) %>%
@@ -52,6 +64,11 @@ locality_data <- phe_data %>%
   ungroup() %>%
   select(areaCode, areaName, date, rolling_sum)
 
+# filter to recent data
+# calculate reference week
+# merge variant data
+# calculate case estimates
+# calculate per 100k estimates
 recent_data <- locality_data %>%
   filter(date > lubridate::ymd("2021-03-20")) %>%
   mutate(offset = 7 - lubridate::wday(date, week_start = 7),
@@ -68,28 +85,36 @@ recent_data <- locality_data %>%
     other_rate = all_other / pop100k,
     total_rate = total_cases / pop100k)
 
+### Plotting ----
+
+# FT plot authorities
 ft_group <- c("Bedford", "Blackburn with Darwen", "Bolton", "Burnley", "Bury", 
               "Central Bedfordshire", "Croydon", "Ealing", "Hillingdon", 
               "Hounslow", "Kirklees", "Leicester", "Luton", "Manchester", 
               "North Tyneside", "Nottingham", "Reading",
               "Rossendale", "Sefton")
 
+# create plotting dataset
 ft_group_data <- recent_data %>%
   filter(areaName %in% ft_group) %>%
   select(date, areaName, b16172 = b16172_rate, all_other = other_rate) %>%
   pivot_longer(cols = c(b16172, all_other), names_to = "variant", values_to = "rate") %>%
   mutate(variant = as_factor(variant))
 
+# data for Bedford plot
 ft_bedford <- ft_group_data %>%
   filter(areaName == "Bedford")
 
+# data for Blackburn and Bolton plots
 ft_blackburn_bolton <- ft_group_data %>%
   filter(areaName == "Blackburn with Darwen" | areaName == "Bolton") %>%
   mutate(areaName = str_remove_all(areaName, " with Darwen"))
 
+# data for Sefton plot
 ft_sefton <- ft_group_data %>%
   filter(areaName == "Sefton")
 
+# data for all other authorities
 ft_15 <- ft_group_data %>%
   filter(
     str_detect(areaName,
@@ -97,14 +122,8 @@ ft_15 <- ft_group_data %>%
                negate = TRUE)) %>%
   mutate(areaName = str_replace_all(areaName, "Bedfordshire", "Beds."))
 
-ft_15_labels <- ft_15 %>%
-  distinct(areaName) %>%
-  mutate(
-    x = lubridate::ymd("2021-03-21"),
-    y = 170
-  )
-
-
+# create a theme based on FT colour swatch
+# https://registry.origami.ft.com/components/o-colors@5.3.1?brand=master
 custom_theme <- ggplot2::theme(
   text = element_text("Barlow"),
   plot.margin = margin(t = 3, r = 3, b = 3, l = 3),
@@ -127,6 +146,7 @@ custom_theme <- ggplot2::theme(
     margin = margin(t = 3))
 )
 
+# create fill scale based on FT colour swatch
 custom_scale <- c("b16172" = "#CC0000", "all_other" = "#E6D9CE")
 
 # Blackburn and Bolton plots
@@ -199,7 +219,7 @@ p1 <- ggplot(ft_15, aes(x = date, y = rate, fill = variant)) +
   theme_void() +
   custom_theme
 
-
+# create a patchwork layout
 patch_layout <- c(
   area(t = 1, l = 1, b = 3, r = 5),
   area(t = 1, l = 6, b = 2),
@@ -207,6 +227,10 @@ patch_layout <- c(
   area(t = 1, l = 7, b = 3, r = 8)
 )
 
+# check patchwork
+plot(patch_layout)
+
+# combine plots, apply layout and annotations
 p1 + p2 + p3 + p4 + plot_layout(design = patch_layout) + 
   plot_annotation(
     title = "Many areas of England are now seeing resurgences driven by B.1.617.2",
