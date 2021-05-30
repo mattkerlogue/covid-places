@@ -143,7 +143,7 @@ custom_theme <- ggplot2::theme(
   strip.placement = "outside",
   strip.text = element_text(
     hjust = 0, size = 8, family = "Barlow", face = "bold",
-    margin = margin(t = 3))
+    margin = margin(t = 3, b = 3))
 )
 
 # create fill scale based on FT colour swatch
@@ -155,8 +155,8 @@ p4 <- ggplot(ft_blackburn_bolton, aes(x = date, y = rate, fill = variant)) +
   facet_wrap(~areaName, ncol = 2) +
   scale_fill_manual(values = custom_scale) +
   scale_y_continuous(
-    breaks = seq(0, 550, 50),
-    limits = c(0, 575),
+    breaks = seq(0, 600, 50),
+    limits = c(0, 660),
     position = "right",
     expand = expansion(add = 0)) +
   scale_x_date(
@@ -172,8 +172,8 @@ p2 <- ggplot(ft_bedford, aes(x = date, y = rate, fill = variant)) +
   facet_wrap(~areaName, ncol = 1) +
   scale_fill_manual(values = custom_scale) +
   scale_y_continuous(
-    breaks = seq(0, 350, 50),
-    limits = c(0, 350),
+    breaks = seq(0, 400, 50),
+    limits = c(0, 430),
     position = "right",
     expand = expansion(add = 0)) +
   scale_x_date(
@@ -181,8 +181,7 @@ p2 <- ggplot(ft_bedford, aes(x = date, y = rate, fill = variant)) +
     labels = c("Apr", "May"),
     expand = expansion(add = 0)) +
   theme_void() +
-  custom_theme +
-  theme(plot.margin = margin(b = 0))
+  custom_theme
 
 # Sefton plot
 p3 <- ggplot(ft_sefton, aes(x = date, y = rate, fill = variant)) +
@@ -232,6 +231,98 @@ plot(patch_layout)
 
 # combine plots, apply layout and annotations
 p1 + p2 + p3 + p4 + plot_layout(design = patch_layout) + 
+  plot_annotation(
+    title = "Many areas of England are now seeing resurgences driven by B.1.617.2",
+    subtitle = "Weekly cases per 100k people, by variant",
+    caption = paste(
+      "@mattkerlogue after @jburnmurdoch (for The Financial Times)",
+      "Local authority cases by variant estimated by applying proportions of sequenced samples to total cases.",
+      "Sources: Sanger Institute and Public Health England",
+      sep = "\n"),
+    theme = custom_theme
+    )
+
+
+# use separate facets for each row
+
+patch_layout2 <- c(
+  area(t = 1, l = 1, b = 1, r = 5),
+  area(t = 2, l = 1, b = 2, r = 5),
+  area(t = 3, l = 1, b = 3, r = 6),
+  area(t = 1, l = 6, b = 2),
+  area(t = 1, l = 7, b = 3, r = 8)
+)
+
+plot(patch_layout2)
+
+ft_row1 <- ft_group_data %>%
+  filter(str_detect(areaName, "Burnley|Bury|Bedfordshire|Croydon|Ealing")) %>%
+  mutate(areaName = str_replace(areaName, "Bedfordshire", "Beds."))
+
+ft_row2 <- ft_group_data %>%
+  filter(str_detect(areaName, "Hillingdon|Hounslow|Kirklees|Leicester|Luton"))
+
+ft_row3 <- ft_group_data %>%
+  filter(
+    str_detect(
+      areaName, 
+      "Manchester|North Tyneside|Nottingham|Reading|Rossendale|Sefton"))
+
+row1_plot <- ggplot(ft_row1, aes(x = date, y = rate, fill = variant)) +
+  geom_area(position = "stack", show.legend = FALSE) +
+  facet_wrap(~areaName, ncol = 5, scales = "free_x") +
+  scale_fill_manual(values = custom_scale) +
+  scale_y_continuous(
+    breaks = seq(0, 175, 50),
+    limits = c(0, 175),
+    oob = scales::squish,
+    position = "left",
+    expand = expansion(add = 0)) +
+  scale_x_date(
+    breaks = lubridate::ymd(c("2021-04-01", "2021-05-01")),
+    labels = c("Apr", "May"),
+    expand = expansion(add = 0)) +
+  theme_void() +
+  custom_theme
+
+row2_plot <- ggplot(ft_row2, aes(x = date, y = rate, fill = variant)) +
+  geom_area(position = "stack", show.legend = FALSE) +
+  facet_wrap(~areaName, ncol = 5, scales = "free_x") +
+  scale_fill_manual(values = custom_scale) +
+  scale_y_continuous(
+    breaks = seq(0, 175, 50),
+    limits = c(0, 175),
+    oob = scales::squish,
+    position = "left",
+    expand = expansion(add = 0)) +
+  scale_x_date(
+    breaks = lubridate::ymd(c("2021-04-01", "2021-05-01")),
+    labels = c("Apr", "May"),
+    expand = expansion(add = 0)) +
+  theme_void() +
+  custom_theme
+
+row3_plot <- ggplot(ft_row3, aes(x = date, y = rate, fill = variant)) +
+  geom_area(position = "stack", show.legend = FALSE) +
+  facet_wrap(~areaName, ncol = 6, scales = "free_x") +
+  scale_fill_manual(values = custom_scale) +
+  scale_y_continuous(
+    breaks = seq(0, 175, 50),
+    limits = c(0, 175),
+    oob = scales::squish,
+    position = "left",
+    expand = expansion(add = 0)) +
+  scale_x_date(
+    breaks = lubridate::ymd(c("2021-04-01", "2021-05-01")),
+    labels = c("Apr", "May"),
+    expand = expansion(add = 0)) +
+  theme_void() +
+  custom_theme
+
+plot(patch_layout2)
+
+row1_plot + row2_plot + row3_plot + p2 + p4 + 
+  plot_layout(design = patch_layout2) + 
   plot_annotation(
     title = "Many areas of England are now seeing resurgences driven by B.1.617.2",
     subtitle = "Weekly cases per 100k people, by variant",
